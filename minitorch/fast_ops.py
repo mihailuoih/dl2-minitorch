@@ -159,8 +159,28 @@ def tensor_map(
         in_shape: Shape,
         in_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        aligned = len(out_shape) == len(in_shape)
+        if aligned:
+            for dim in range(len(out_shape)):
+                if (
+                    out_shape[dim] != in_shape[dim]
+                    or out_strides[dim] != in_strides[dim]
+                ):
+                    aligned = False
+                    break
+
+        if aligned:
+            for ordinal in prange(len(out)):
+                out[ordinal] = fn(in_storage[ordinal])
+        else:
+            for ordinal in prange(len(out)):
+                out_index = np.empty(MAX_DIMS, dtype=np.int32)
+                in_index = np.empty(MAX_DIMS, dtype=np.int32)
+                to_index(ordinal, out_shape, out_index)
+                broadcast_index(out_index, out_shape, in_shape, in_index)
+                out_position = index_to_position(out_index, out_strides)
+                in_position = index_to_position(in_index, in_strides)
+                out[out_position] = fn(in_storage[in_position])
 
     return njit(parallel=True)(_map)  # type: ignore
 
@@ -198,8 +218,35 @@ def tensor_zip(
         b_shape: Shape,
         b_strides: Strides,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        aligned = len(out_shape) == len(a_shape) and len(out_shape) == len(b_shape)
+        if aligned:
+            for dim in range(len(out_shape)):
+                if (
+                    out_shape[dim] != a_shape[dim]
+                    or out_shape[dim] != b_shape[dim]
+                    or out_strides[dim] != a_strides[dim]
+                    or out_strides[dim] != b_strides[dim]
+                ):
+                    aligned = False
+                    break
+
+        if aligned:
+            for ordinal in prange(len(out)):
+                out[ordinal] = fn(a_storage[ordinal], b_storage[ordinal])
+        else:
+            for ordinal in prange(len(out)):
+                out_index = np.empty(MAX_DIMS, dtype=np.int32)
+                a_index = np.empty(MAX_DIMS, dtype=np.int32)
+                b_index = np.empty(MAX_DIMS, dtype=np.int32)
+                to_index(ordinal, out_shape, out_index)
+                broadcast_index(out_index, out_shape, a_shape, a_index)
+                broadcast_index(out_index, out_shape, b_shape, b_index)
+                out_position = index_to_position(out_index, out_strides)
+                a_position = index_to_position(a_index, a_strides)
+                b_position = index_to_position(b_index, b_strides)
+                out[out_position] = fn(
+                    a_storage[a_position], b_storage[b_position]
+                )
 
     return njit(parallel=True)(_zip)  # type: ignore
 
@@ -232,8 +279,19 @@ def tensor_reduce(
         a_strides: Strides,
         reduce_dim: int,
     ) -> None:
-        # TODO: Implement for Task 3.1.
-        raise NotImplementedError('Need to implement for Task 3.1')
+        for ordinal in prange(len(out)):
+            out_index = np.empty(MAX_DIMS, dtype=np.int32)
+            to_index(ordinal, out_shape, out_index)
+            out_position = index_to_position(out_index, out_strides)
+            a_position = index_to_position(out_index, a_strides)
+            reduce_stride = a_strides[reduce_dim]
+            accumulator = out[out_position]
+
+            for reduce_index in range(a_shape[reduce_dim]):
+                accumulator = fn(accumulator, a_storage[a_position])
+                a_position += reduce_stride
+
+            out[out_position] = accumulator
 
     return njit(parallel=True)(_reduce)  # type: ignore
 
