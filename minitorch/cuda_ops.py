@@ -26,6 +26,9 @@ index_to_position = cuda.jit(device=True)(index_to_position)
 broadcast_index = cuda.jit(device=True)(broadcast_index)
 
 THREADS_PER_BLOCK = 32
+ELEMENTWISE_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 32
+REDUCE_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 1024
+MATRIX_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 32
 
 
 class CudaOps(TensorOps):
@@ -41,8 +44,8 @@ class CudaOps(TensorOps):
                 out = a.zeros(a.shape)
 
             # Instantiate and run the cuda kernel.
-            threadsperblock = THREADS_PER_BLOCK
-            blockspergrid = (out.size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
+            threadsperblock = ELEMENTWISE_THREADS_PER_BLOCK
+            blockspergrid = (out.size + threadsperblock - 1) // threadsperblock
             f[blockspergrid, threadsperblock](*out.tuple(), out.size, *a.tuple())  # type: ignore
             return out
 
@@ -55,7 +58,7 @@ class CudaOps(TensorOps):
         def ret(a: Tensor, b: Tensor) -> Tensor:
             c_shape = shape_broadcast(a.shape, b.shape)
             out = a.zeros(c_shape)
-            threadsperblock = THREADS_PER_BLOCK
+            threadsperblock = ELEMENTWISE_THREADS_PER_BLOCK
             blockspergrid = (out.size + (threadsperblock - 1)) // threadsperblock
             f[blockspergrid, threadsperblock](  # type: ignore
                 *out.tuple(), out.size, *a.tuple(), *b.tuple()
@@ -71,17 +74,21 @@ class CudaOps(TensorOps):
         f = tensor_reduce(cuda.jit(device=True)(fn))
 
         def ret(a: Tensor, dim: int) -> Tensor:
-            out_shape = list(a.shape)
-            out_shape[dim] = (a.shape[dim] - 1) // 1024 + 1
-            out_a = a.zeros(tuple(out_shape))
+            current = a
+            while current.shape[dim] > 1:
+                out_shape = list(current.shape)
+                out_shape[dim] = (
+                    current.shape[dim] + REDUCE_THREADS_PER_BLOCK - 1
+                ) // REDUCE_THREADS_PER_BLOCK
+                out_a = current.zeros(tuple(out_shape))
 
-            threadsperblock = 1024
-            blockspergrid = out_a.size
-            f[blockspergrid, threadsperblock](  # type: ignore
-                *out_a.tuple(), out_a.size, *a.tuple(), dim, start
-            )
+                blockspergrid = out_a.size
+                f[blockspergrid, REDUCE_THREADS_PER_BLOCK](  # type: ignore
+                    *out_a.tuple(), out_a.size, *current.tuple(), dim, start
+                )
+                current = out_a
 
-            return out_a
+            return current
 
         return ret
 
@@ -153,8 +160,12 @@ def tensor_map(
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
         in_index = cuda.local.array(MAX_DIMS, numba.int32)
         i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        if i < out_size:
+            to_index(i, out_shape, out_index)
+            broadcast_index(out_index, out_shape, in_shape, in_index)
+            out_position = index_to_position(out_index, out_strides)
+            in_position = index_to_position(in_index, in_strides)
+            out[out_position] = fn(in_storage[in_position])
 
     return cuda.jit()(_map)  # type: ignore
 
@@ -195,8 +206,14 @@ def tensor_zip(
         b_index = cuda.local.array(MAX_DIMS, numba.int32)
         i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
 
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        if i < out_size:
+            to_index(i, out_shape, out_index)
+            broadcast_index(out_index, out_shape, a_shape, a_index)
+            broadcast_index(out_index, out_shape, b_shape, b_index)
+            out_position = index_to_position(out_index, out_strides)
+            a_position = index_to_position(a_index, a_strides)
+            b_position = index_to_position(b_index, b_strides)
+            out[out_position] = fn(a_storage[a_position], b_storage[b_position])
 
     return cuda.jit()(_zip)  # type: ignore
 
@@ -228,8 +245,21 @@ def _sum_practice(out: Storage, a: Storage, size: int) -> None:
     i = cuda.blockIdx.x * cuda.blockDim.x + cuda.threadIdx.x
     pos = cuda.threadIdx.x
 
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError('Need to implement for Task 3.3')
+    if i < size:
+        cache[pos] = a[i]
+    else:
+        cache[pos] = 0.0
+    cuda.syncthreads()
+
+    stride = BLOCK_DIM // 2
+    while stride > 0:
+        if pos < stride:
+            cache[pos] += cache[pos + stride]
+        cuda.syncthreads()
+        stride //= 2
+
+    if pos == 0:
+        out[cuda.blockIdx.x] = cache[0]
 
 
 jit_sum_practice = cuda.jit()(_sum_practice)
@@ -238,8 +268,8 @@ jit_sum_practice = cuda.jit()(_sum_practice)
 def sum_practice(a: Tensor) -> TensorData:
     (size,) = a.shape
     threadsperblock = THREADS_PER_BLOCK
-    blockspergrid = (size // THREADS_PER_BLOCK) + 1
-    out = TensorData([0.0 for i in range(2)], (2,))
+    blockspergrid = (size + THREADS_PER_BLOCK - 1) // THREADS_PER_BLOCK
+    out = TensorData([0.0 for _ in range(blockspergrid)], (blockspergrid,))
     out.to_cuda_()
     jit_sum_practice[blockspergrid, threadsperblock](
         out.tuple()[0], a._tensor._storage, size
@@ -272,14 +302,33 @@ def tensor_reduce(
         reduce_dim: int,
         reduce_value: float,
     ) -> None:
-        BLOCK_DIM = 1024
+        BLOCK_DIM = REDUCE_THREADS_PER_BLOCK
         cache = cuda.shared.array(BLOCK_DIM, numba.float64)
         out_index = cuda.local.array(MAX_DIMS, numba.int32)
         out_pos = cuda.blockIdx.x
         pos = cuda.threadIdx.x
 
-        # TODO: Implement for Task 3.3.
-        raise NotImplementedError('Need to implement for Task 3.3')
+        to_index(out_pos, out_shape, out_index)
+        chunk_start = out_index[reduce_dim] * BLOCK_DIM
+        reduce_index = chunk_start + pos
+        out_index[reduce_dim] = reduce_index
+
+        if reduce_index < a_shape[reduce_dim]:
+            a_position = index_to_position(out_index, a_strides)
+            cache[pos] = a_storage[a_position]
+        else:
+            cache[pos] = reduce_value
+        cuda.syncthreads()
+
+        stride = BLOCK_DIM // 2
+        while stride > 0:
+            if pos < stride:
+                cache[pos] = fn(cache[pos], cache[pos + stride])
+            cuda.syncthreads()
+            stride //= 2
+
+        if pos == 0 and out_pos < out_size:
+            out[out_pos] = cache[0]
 
     return cuda.jit()(_reduce)  # type: ignore
 
