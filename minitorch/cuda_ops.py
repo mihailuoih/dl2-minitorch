@@ -112,11 +112,17 @@ class CudaOps(TensorOps):
 
         # One block per batch, extra rows, extra col
         blockspergrid = (
-            (out.shape[1] + (THREADS_PER_BLOCK - 1)) // THREADS_PER_BLOCK,
-            (out.shape[2] + (THREADS_PER_BLOCK - 1)) // THREADS_PER_BLOCK,
+            (out.shape[1] + (MATRIX_THREADS_PER_BLOCK - 1))
+            // MATRIX_THREADS_PER_BLOCK,
+            (out.shape[2] + (MATRIX_THREADS_PER_BLOCK - 1))
+            // MATRIX_THREADS_PER_BLOCK,
             out.shape[0],
         )
-        threadsperblock = (THREADS_PER_BLOCK, THREADS_PER_BLOCK, 1)
+        threadsperblock = (
+            MATRIX_THREADS_PER_BLOCK,
+            MATRIX_THREADS_PER_BLOCK,
+            1,
+        )
 
         tensor_matrix_multiply[blockspergrid, threadsperblock](
             *out.tuple(), out.size, *a.tuple(), *b.tuple()
@@ -364,8 +370,24 @@ def _mm_practice(out: Storage, a: Storage, b: Storage, size: int) -> None:
         size (int): size of the square
     """
     BLOCK_DIM = 32
-    # TODO: Implement for Task 3.3.
-    raise NotImplementedError('Need to implement for Task 3.3')
+    a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
+    row = cuda.threadIdx.x
+    column = cuda.threadIdx.y
+
+    if row < size and column < size:
+        a_shared[row, column] = a[row * size + column]
+        b_shared[row, column] = b[row * size + column]
+    else:
+        a_shared[row, column] = 0.0
+        b_shared[row, column] = 0.0
+    cuda.syncthreads()
+
+    if row < size and column < size:
+        accumulator = 0.0
+        for k in range(size):
+            accumulator += a_shared[row, k] * b_shared[k, column]
+        out[row * size + column] = accumulator
 
 
 jit_mm_practice = cuda.jit()(_mm_practice)
@@ -417,7 +439,7 @@ def _tensor_matrix_multiply(
     # Batch dimension - fixed
     batch = cuda.blockIdx.z
 
-    BLOCK_DIM = 32
+    BLOCK_DIM = MATRIX_THREADS_PER_BLOCK
     a_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
     b_shared = cuda.shared.array((BLOCK_DIM, BLOCK_DIM), numba.float64)
 
@@ -434,8 +456,47 @@ def _tensor_matrix_multiply(
     #    a) Copy into shared memory for a matrix.
     #    b) Copy into shared memory for b matrix
     #    c) Compute the dot produce for position c[i, j]
-    # TODO: Implement for Task 3.4.
-    raise NotImplementedError('Need to implement for Task 3.4')
+    accumulator = 0.0
+    inner_size = a_shape[2]
+    tiles = (inner_size + BLOCK_DIM - 1) // BLOCK_DIM
+
+    for tile in range(tiles):
+        a_column = tile * BLOCK_DIM + pj
+        b_row = tile * BLOCK_DIM + pi
+
+        if i < out_shape[1] and a_column < inner_size:
+            a_position = (
+                batch * a_batch_stride
+                + i * a_strides[1]
+                + a_column * a_strides[2]
+            )
+            a_shared[pi, pj] = a_storage[a_position]
+        else:
+            a_shared[pi, pj] = 0.0
+
+        if b_row < inner_size and j < out_shape[2]:
+            b_position = (
+                batch * b_batch_stride
+                + b_row * b_strides[1]
+                + j * b_strides[2]
+            )
+            b_shared[pi, pj] = b_storage[b_position]
+        else:
+            b_shared[pi, pj] = 0.0
+        cuda.syncthreads()
+
+        if i < out_shape[1] and j < out_shape[2]:
+            for k in range(BLOCK_DIM):
+                accumulator += a_shared[pi, k] * b_shared[k, pj]
+        cuda.syncthreads()
+
+    if i < out_shape[1] and j < out_shape[2]:
+        out_position = (
+            batch * out_strides[0]
+            + i * out_strides[1]
+            + j * out_strides[2]
+        )
+        out[out_position] = accumulator
 
 
 tensor_matrix_multiply = cuda.jit(_tensor_matrix_multiply)
