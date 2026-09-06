@@ -29,18 +29,19 @@ jobs:
       run: |
         # stop the build if there are Python syntax errors or undefined names
         python -m flake8 --ignore "N801, E203, E266, E501, W503, F812, F401, F841, E741, N803, N802, N806" minitorch/ tests/
-    - name: Test Module 0
+    - name: Test Modules 0 and 1
       run: |
         python -m pytest tests -x -m task0_1
         python -m pytest tests -x -m task0_2
         python -m pytest tests -x -m task0_3
         python -m pytest tests -x -m task0_4
 
+        python -m pytest tests -x -m task1_1
+        python -m pytest tests -x -m task1_2
+        python -m pytest tests -x -m task1_3
+        python -m pytest tests -x -m task1_4
+
         # Добавлю как сделаю
-        # python -m pytest tests -x -m task1_1
-        # python -m pytest tests -x -m task1_2
-        # python -m pytest tests -x -m task1_3
-        # python -m pytest tests -x -m task1_4
         # python -m pytest tests -x -m task2_1
         # python -m pytest tests -x -m task2_2
         # python -m pytest tests -x -m task2_3
