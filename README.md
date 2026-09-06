@@ -34,7 +34,7 @@ linear.bias_0 = 5.0
 
 Задачи 1.1, 1.2, 1.3 и 1.4 написаны и протестированы.
 
-### Задача 1.5: обучение скалярных моделей
+### Задача 1.5
 
 Во всех запусках использовались 50 точек, скорость обучения `0.5` и 500 эпох.
 Для воспроизводимости указан `seed`.
@@ -87,4 +87,63 @@ Epoch 400 | loss 2.512357 | correct 48/50
 Epoch 500 | loss 2.086932 | correct 50/50
 ```
 
-Как видим, всё корректно работает.
+Как видим, всё корректно работает (все достигли точности `50/50`).
+
+## Module 2
+
+Задачи 2.1, 2.2, 2.3 и 2.4 написаны и протестированы.
+
+### Задача 2.5
+
+Во всех запусках использовались 50 точек, скорость обучения `0.5` и 500 эпох.
+Для воспроизводимости указаны `seed`.
+
+#### Simple
+
+Параметры: `HIDDEN = 4`, `seed = 3`.
+
+```text
+Epoch 100 | loss 5.232619 | correct 48/50 | avg_epoch 0.037774s
+Epoch 200 | loss 2.324147 | correct 48/50 | avg_epoch 0.037804s
+Epoch 300 | loss 2.685251 | correct 48/50 | avg_epoch 0.037866s
+Epoch 400 | loss 0.740643 | correct 50/50 | avg_epoch 0.037826s
+Epoch 500 | loss 0.496871 | correct 50/50 | avg_epoch 0.037769s
+```
+
+#### Diag
+
+Параметры: `HIDDEN = 4`, `seed = 0`.
+
+```text
+Epoch 100 | loss 11.275080 | correct 47/50 | avg_epoch 0.037767s
+Epoch 200 | loss 9.782889 | correct 47/50 | avg_epoch 0.037846s
+Epoch 300 | loss 1.570307 | correct 50/50 | avg_epoch 0.037702s
+Epoch 400 | loss 0.532304 | correct 50/50 | avg_epoch 0.037729s
+Epoch 500 | loss 0.267176 | correct 50/50 | avg_epoch 0.037782s
+```
+
+#### Split
+
+Параметры: `HIDDEN = 10`, `seed = 44`.
+
+```text
+Epoch 100 | loss 24.943577 | correct 35/50 | avg_epoch 0.147600s
+Epoch 200 | loss 12.097781 | correct 42/50 | avg_epoch 0.147448s
+Epoch 300 | loss 3.945503 | correct 49/50 | avg_epoch 0.147243s
+Epoch 400 | loss 2.968015 | correct 50/50 | avg_epoch 0.147098s
+Epoch 500 | loss 2.301514 | correct 50/50 | avg_epoch 0.147073s
+```
+
+#### Xor
+
+Параметры: `HIDDEN = 10`, `seed = 45`.
+
+```text
+Epoch 100 | loss 23.656162 | correct 40/50 | avg_epoch 0.147367s
+Epoch 200 | loss 8.249307 | correct 46/50 | avg_epoch 0.147033s
+Epoch 300 | loss 3.324541 | correct 48/50 | avg_epoch 0.147120s
+Epoch 400 | loss 2.512357 | correct 48/50 | avg_epoch 0.146942s
+Epoch 500 | loss 2.086932 | correct 50/50 | avg_epoch 0.146901s
+```
+
+Как видим, всё корректно работает (все достигли точности `50/50`).
