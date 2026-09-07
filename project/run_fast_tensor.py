@@ -1,4 +1,5 @@
 import random
+import time
 
 import numba
 
@@ -6,12 +7,13 @@ import minitorch
 
 datasets = minitorch.datasets
 FastTensorBackend = minitorch.TensorBackend(minitorch.FastOps)
+GPUBackend = None
 if numba.cuda.is_available():
     GPUBackend = minitorch.TensorBackend(minitorch.CudaOps)
 
 
-def default_log_fn(epoch, total_loss, correct, losses):
-    print("Epoch ", epoch, " loss ", total_loss, "correct", correct)
+def default_log_fn(epoch, total_loss, correct, losses, time_per_epoch=None):
+    print("Epoch ", epoch, " loss ", total_loss, "correct", correct, time_per_epoch if time_per_epoch is not None else -1.0)
 
 
 def RParam(*shape, backend):
@@ -70,8 +72,10 @@ class FastTrain:
         optim = minitorch.SGD(self.model.parameters(), learning_rate)
         BATCH = 10
         losses = []
+        timing_start = time.perf_counter()
+        timed_epochs = 0
 
-        for epoch in range(max_epochs):
+        for epoch in range(1, max_epochs + 1):
             total_loss = 0.0
             c = list(zip(data.X, data.y))
             random.shuffle(c)
@@ -88,20 +92,33 @@ class FastTrain:
                 loss = -prob.log()
                 (loss / y.shape[0]).sum().view(1).backward()
 
-                total_loss = loss.sum().view(1)[0]
+                total_loss += loss.sum().view(1)[0]
 
                 # Update
                 optim.step()
 
             losses.append(total_loss)
+            if epoch == 1:
+                timing_start = time.perf_counter()
+            else:
+                timed_epochs += 1
+
             # Logging
             if epoch % 10 == 0 or epoch == max_epochs:
                 X = minitorch.tensor(data.X, backend=self.backend)
                 y = minitorch.tensor(data.y, backend=self.backend)
                 out = self.model.forward(X).view(y.shape[0])
-                y2 = minitorch.tensor(data.y)
+                y2 = minitorch.tensor(data.y, backend=self.backend)
                 correct = int(((out.detach() > 0.5) == y2).sum()[0])
-                log_fn(epoch, total_loss, correct, losses)
+                time_per_epoch = (
+                    (time.perf_counter() - timing_start) / timed_epochs
+                    if timed_epochs
+                    else 0.0
+                )
+                if log_fn is default_log_fn:
+                    log_fn(epoch, total_loss, correct, losses, time_per_epoch)
+                else:
+                    log_fn(epoch, total_loss, correct, losses)
 
 
 if __name__ == "__main__":
@@ -113,22 +130,32 @@ if __name__ == "__main__":
     parser.add_argument("--RATE", type=float, default=0.05, help="learning rate")
     parser.add_argument("--BACKEND", default="cpu", help="backend mode")
     parser.add_argument("--DATASET", default="simple", help="dataset")
+    parser.add_argument("--EPOCHS", type=int, default=500, help="number of epochs")
+    parser.add_argument("--SEED", type=int, default=0, help="seed")
     parser.add_argument("--PLOT", default=False, help="dataset")
 
     args = parser.parse_args()
+    random.seed(args.SEED)
 
     PTS = args.PTS
 
     if args.DATASET == "xor":
         data = minitorch.datasets["Xor"](PTS)
     elif args.DATASET == "simple":
-        data = minitorch.datasets["Simple"].simple(PTS)
+        data = minitorch.datasets["Simple"](PTS)
     elif args.DATASET == "split":
         data = minitorch.datasets["Split"](PTS)
 
     HIDDEN = int(args.HIDDEN)
     RATE = args.RATE
 
-    FastTrain(
-        HIDDEN, backend=FastTensorBackend if args.BACKEND != "gpu" else GPUBackend
-    ).train(data, RATE)
+    if args.BACKEND == "gpu":
+        if GPUBackend is None:
+            parser.error("CUDA недоступна")
+        backend = GPUBackend
+    elif args.BACKEND == "cpu":
+        backend = FastTensorBackend
+    else:
+        parser.error("Бэкенд должен быть cpu или gpu")
+
+    FastTrain(HIDDEN, backend=backend).train(data, RATE, max_epochs=args.EPOCHS)
