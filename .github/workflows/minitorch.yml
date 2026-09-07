@@ -29,7 +29,7 @@ jobs:
       run: |
         # stop the build if there are Python syntax errors or undefined names
         python -m flake8 --ignore "N801, E203, E266, E501, W503, F812, F401, F841, E741, N803, N802, N806" minitorch/ tests/
-    - name: Test Modules 0, 1 and 2
+    - name: Test Modules 0, 1, 2 and CPU part of 3
       run: |
         python -m pytest tests -x -m task0_1
         python -m pytest tests -x -m task0_2
@@ -46,11 +46,17 @@ jobs:
         python -m pytest tests -x -m task2_3
         python -m pytest tests -x -m task2_4
 
-        # Добавлю как сделаю
-        # python -m pytest tests -x -m task3_1
-        # python -m pytest tests -x -m task3_2
-        # python -m pytest tests -x -m task3_3
-        # python -m pytest tests -x -m task3_4
+        python -m pytest tests -x -m task3_1
+        python -m pytest tests -x -m task3_2
+
+    - name: Test CUDA part of Module 3 with simulator
+      env:
+        NUMBA_ENABLE_CUDASIM: "1"
+      run: |
+        python -m pytest tests -x -m task3_3
+        python -m pytest tests -x -m task3_4
+
+        # Добавлю после выполнения Module 4
         # python -m pytest tests -x -m task4_1
         # python -m pytest tests -x -m task4_2
         # python -m pytest tests -x -m task4_3
