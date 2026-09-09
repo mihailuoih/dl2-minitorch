@@ -56,7 +56,7 @@ jobs:
         python -m pytest tests -x -m task3_3
         python -m pytest tests -x -m task3_4
 
-        # Добавлю после выполнения Module 4
+        # Добавлю после выполнения Module 4 (не буду)
         # python -m pytest tests -x -m task4_1
         # python -m pytest tests -x -m task4_2
         # python -m pytest tests -x -m task4_3

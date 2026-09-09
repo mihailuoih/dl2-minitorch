@@ -27,7 +27,7 @@ broadcast_index = cuda.jit(device=True)(broadcast_index)
 
 THREADS_PER_BLOCK = 32
 ELEMENTWISE_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 32
-REDUCE_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 1024
+REDUCE_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 256
 MATRIX_THREADS_PER_BLOCK = 4 if numba.config.ENABLE_CUDASIM else 32
 
 
